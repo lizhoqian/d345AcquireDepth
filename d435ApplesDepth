@@ -1,0 +1,92 @@
+import pyrealsense2 as rs
+import numpy as np
+import cv2
+
+def d435_init():
+    pipeline = rs.pipeline()
+    config = rs.config()
+    config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 15)
+    config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 15)
+    pipe_profile = pipeline.start(config)
+    align_to = rs.stream.color
+    align = rs.align(align_to)
+    return pipeline, align
+
+def get_aligned_images(pipeline, align):
+    frames = pipeline.wait_for_frames()
+    aligned_frames = align.process(frames)
+    aligned_depth_frame = aligned_frames.get_depth_frame()
+    aligned_color_frame = aligned_frames.get_color_frame()
+
+    depth_intrin = aligned_depth_frame.profile.as_video_stream_profile().intrinsics
+    color_intrin = aligned_color_frame.profile.as_video_stream_profile().intrinsics
+
+    img_color = np.asanyarray(aligned_color_frame.get_data())
+    img_depth = np.asanyarray(aligned_depth_frame.get_data())
+
+    return color_intrin, depth_intrin, img_color, img_depth, aligned_depth_frame
+
+def get_red_object_center(frame):
+    lower_red = np.array([147, 179, 102])
+    upper_red = np.array([178, 253, 255])
+
+    blurred = cv2.GaussianBlur(frame, (11, 11), 0)
+    hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
+    mask = cv2.inRange(hsv, lower_red, upper_red)
+    mask = cv2.erode(mask, None, iterations=2)
+    mask = cv2.dilate(mask, None, iterations=2)
+
+    contours, hierarchy = cv2.findContours(mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    centers = []
+
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if area > 1000:
+            rect = cv2.minAreaRect(contour)
+            box = cv2.boxPoints(rect)
+            box = np.int0(box)
+            centers.append(rect[0])
+
+            cv2.drawContours(frame, [box], 0, (0, 255, 0), 2)
+            cv2.putText(frame, "apple", (box[0][0], box[0][1] + 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            cv2.circle(frame, (int(rect[0][0]), int(rect[0][1])), 5, (0, 255, 0), -1)
+
+    return frame, sorted(centers, key=lambda x: x[0])
+
+def get_3d_camera_coordinate(depth_pixel, aligned_depth_frame, depth_intrin):
+    x = depth_pixel[0]
+    y = depth_pixel[1]
+    depth = aligned_depth_frame.get_distance(x, y)
+    camera_coordinate = rs.rs2_deproject_pixel_to_point(depth_intrin, depth_pixel, depth)
+    return depth, camera_coordinate
+
+if __name__ == "__main__":
+    pipeline, align = d435_init()
+
+    while True:
+        color_intrin, depth_intrin, img_color, img_depth, aligned_depth_frame = get_aligned_images(pipeline, align)
+        frame, centers = get_red_object_center(img_color)
+
+        if cv2.waitKey(1) == ord('a'):
+            camera_coordinates = []
+            for coord in centers:
+                depth_pixel = [int(coord[0]), int(coord[1])]
+                depth, camera_coordinate = get_3d_camera_coordinate(depth_pixel, aligned_depth_frame, depth_intrin)
+                print("像素坐标: {}, 深度: {}".format(depth_pixel, depth))
+                print("相机坐标: {}".format(camera_coordinate))
+                camera_coordinates.append(camera_coordinate)
+                cv2.circle(frame, (int(coord[0]), int(coord[1])), 8, [255, 0, 255], thickness=-1)
+#                 cv2.putText(frame, "Dis:" + str(depth) + " m", (40, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.2, [0, 0, 255])
+#                 cv2.putText(frame, "X:" + str(camera_coordinate[0]) + " m", (80, 80), cv2.FONT_HERSHEY_SIMPLEX, 1.2, [255, 0, 0])
+#                 cv2.putText(frame, "Y:" + str(camera_coordinate[1]) + " m", (80, 120), cv2.FONT_HERSHEY_SIMPLEX, 1.2, [255, 0, 0])
+#                 cv2.putText(frame, "Z:" + str(camera_coordinate[2]) + " m", (80, 160), cv2.FONT_HERSHEY_SIMPLEX, 1.2, [255, 0, 0])
+            camera_coordinates = tuple(camera_coordinates)
+            print("相机坐标元组: {}".format(camera_coordinates))
+        cv2.imshow("frame", frame)
+
+        if cv2.waitKey(1) == ord('q'):
+            break
+
+    pipeline.stop()
+    cv2.destroyAllWindows()
