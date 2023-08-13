@@ -1,0 +1,68 @@
+"""在这个示例代码中，我添加了center_x和center_y两个变量来表示中心坐标。你可以根据需要修改这两个变量的值，以便调整偏差的计算。"""
+import cv2 as cv
+import numpy as np
+import imutils
+import serial
+ser = serial.Serial("COM6", 115200, timeout=0.2)  
+
+cap = cv.VideoCapture(0)
+lower_red = np.array([147, 179, 102])  
+upper_red = np.array([178, 253, 255])
+
+# 设置中心坐标
+center_x = 150
+center_y = 200
+
+while True:
+    _, frame = cap.read()
+    frame = imutils.resize(frame, width=300)
+    blurred = cv.GaussianBlur(frame, (11, 11), 0)
+    hsv = cv.cvtColor(blurred, cv.COLOR_BGR2HSV)
+    mask = cv.inRange(hsv, lower_red, upper_red)
+    mask = cv.erode(mask, None, iterations=2)
+    mask = cv.dilate(mask, None, iterations=2)
+
+    cnts = cv.findContours(mask.copy(), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)[-2]
+
+    if len(cnts) > 0:
+        c = max(cnts, key=cv.contourArea)
+        ((xc, yc), radius) = cv.minEnclosingCircle(c)
+        rect = cv.minAreaRect(c)
+        box = cv.boxPoints(rect)
+        M = cv.moments(c)
+        center = (int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]))
+        if radius > 10:
+            cv.drawContours(frame, [np.int0(box)], -1, (0, 255, 255), 2)
+            cv.circle(frame, center, 5, (0, 0, 255), -1)
+
+            x_offset = int(xc - center_x)  
+            y_offset = int(yc - center_y)
+            print("x方向偏差：",x_offset)
+            print("y方向偏差：",y_offset)
+            if abs(x_offset) < 10:
+                x_offset = 0
+            elif x_offset > 0:
+                x_offset = 0x01
+            else: 
+                x_offset = 0x00
+
+            if abs(y_offset) < 10:
+                y_offset = 0
+            elif y_offset > 0:  
+                y_offset = 0x01
+            else:
+                y_offset = 0x00
+
+            flag = 1  
+
+            data_packet = bytearray([0xAA, flag, x_offset, y_offset, 0x22])
+            ser.write(data_packet)
+
+    cv.imshow('frame', frame)
+
+    if cv.waitKey(1) & 0xFF == ord('q'):
+        break
+
+cv.destroyAllWindows()
+cap.release()
+ser.close()
