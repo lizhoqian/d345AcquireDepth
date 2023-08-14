@@ -66,3 +66,65 @@ while True:
 cv.destroyAllWindows()
 cap.release()
 ser.close()
+
+
+import serial
+#打开茶串口1 用于接收
+ser1 = serial.Serial('/dev/ttyUSB0',115200)
+# 打开串口2，用于发送数据
+ser2 = serial.Serial('/dev/ttyUSB1', 4000000)
+data_speed = [0xFE, 0xEE, 0x10, 0x00, 0x00, 0x53, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x8C, 0x6C]
+# data1_bytes = bytes(data1)
+
+# while True:
+#    # 读取数据
+#     data1 = []
+#     while len(data1) < 17:  # 假设要接收17个字节的数据
+#         if ser1.in_waiting > 0:
+#             byte = ser1.read(1)  # 一次读取一个字节
+#             data1.append(byte[0])
+
+#     # 打印接收到的数据
+#     print('Received:', data1)
+
+#     # 发送数据
+#     ser2.write(bytes(data1))
+
+# # 关闭串口
+# ser1.close()
+# ser2.close()
+while True:
+    # 读取数据
+    # data1 = []
+    # while len(data1) < 17:  # 假设要接收17个字节的数据
+    #     if ser1.in_waiting > 0:
+    #         byte = ser1.read(1)  # 一次读取一个字节
+    #         data1.append(byte[0])
+
+    #         # 检查前两个字节是否满足要求
+    #         if len(data1) >= 2 and (data1[0] != 0xFE or data1[1] != 0xEE):
+    #             data1 = []  # 丢弃数据
+    #             print("丢弃")
+    #             break
+
+    # # 如果满足要求，打印接收到的数据并发送数据
+    # if len(data1) == 17:
+    #     print('Received:', data1)
+    #     ser2.write(bytes(data1))
+
+    # 检查是否有数据可供读取
+    if ser1.in_waiting > 0:
+        # 读取数据
+        data1 = ser1.read(ser1.in_waiting)
+
+        # 检查前两个字节是否满足要求
+        if len(data1) >= 2 and data1[0] == 0xFE and data1[1] == 0xEE:
+            # 打印接收到的数据
+            print('Received:', data1)
+
+            # 发送数据
+            ser2.write(data1)
+
+# 关闭串口
+ser1.close()
+ser2.close()
